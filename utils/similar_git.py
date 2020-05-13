@@ -59,27 +59,32 @@ def create_index(df, ids_col, xb_faiss_col):
         return False
     
 
-def add_neighbours_text(mydf, train_df):
-    for i in range(1,6):
-        vals=mydf["NN"+str(i)+"_number"].tolist()
-        if pd.isnull(vals).all():
-            mydf["NN"+str(i)+"_text"]=np.nan
-        else:
-            mydf["NN"+str(i)+"_text"] = train_df.set_index("key").loc[mydf["NN"+str(i)+"_number"].tolist()].text.tolist()
-    final=mydf[["key", "query_text", "NN1_text","NN1_score", "NN1_number", "NN2_text","NN2_score", "NN2_number", "NN3_text","NN3_score", "NN3_number", "NN4_text","NN4_score", "NN4_number", "NN5_text","NN5_score","NN5_number", ]]
-    final
+def add_neighbours_text(mydf, train_df, k):
+    try:
+        for i in range(1,k+1):
+            vals=mydf["NN"+str(i)+"_number"].tolist()
 
-    return final
+            if pd.isnull(vals).all():
+                mydf["NN"+str(i)+"_text"]=np.nan
+            else:
+                mydf["NN"+str(i)+"_text"] = train_df.set_index("key").loc[mydf["NN"+str(i)+"_number"].tolist()].text.tolist()
+        return mydf
+#         final=mydf[["key", "query_text", "NN1_text","NN1_score", "NN1_number", "NN2_text","NN2_score", "NN2_number", "NN3_text","NN3_score", "NN3_number", "NN4_text","NN4_score", "NN4_number", "NN5_text","NN5_score","NN5_number", ]]
+#         final
+
+#         return final
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname =os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print("Exception add_neighbours_text: ", e, exc_type, fname, exc_tb.tb_lineno)
+        return False
+    
 
 
 def get_similar_tickets(train_df, test_df, ids_col, xb_faiss_col, k=5, threshold=0.95):
     print("starting operations")
     
     try:
-        if k>5 | k<1:
-            print("currently only functional with k=5")
-            k=5
-        
         print("creating faiss index")
         index_faiss = create_index(train_df, ids_col, xb_faiss_col)
         
@@ -95,7 +100,7 @@ def get_similar_tickets(train_df, test_df, ids_col, xb_faiss_col, k=5, threshold
         result=search_faiss(index_faiss, xq, k)
         print("got results from FAISS")
         
-        nums = lambda t: "KEY"+str(int(t))#.zfill(7)
+        nums = lambda t: "INC"+str(int(t)).zfill(7)
         vfunc = np.vectorize(nums)
         result[1]=vfunc(result[1])
 
@@ -103,27 +108,19 @@ def get_similar_tickets(train_df, test_df, ids_col, xb_faiss_col, k=5, threshold
         mydf["query_key"]=test_df["key"].tolist()
         mydf["query_text"]=test_df["text"].tolist()
         print("creating result dataframe")
-        mydf=mydf.rename(columns={
-            0: "NN1_score",
-            1: "NN2_score",
-            2: "NN3_score",
-            3: "NN4_score",
-            4: "NN5_score",
-            5: "NN1_number",
-            6: "NN2_number",
-            7: "NN3_number",
-            8: "NN4_number",
-            9: "NN5_number",
-        })
+
+        mydf=mydf.rename(columns = dict(zip(range(0,k), [f'NN{n+1}_score' for n in range(0,k)])))
+        mydf=mydf.rename(columns = dict(zip(range(k, (k*2)), [f'NN{n+1}_number' for n in range(0,k)])))
+
 
         res=mydf.apply(apply_threshold, axis=1, args=(k,threshold))
         res=pd.concat(res.values.tolist())
 
-        res = res.assign(is_similar=np.where(pd.isnull(res['NN1_number']) == True , False, True))
+        res = res.assign(is_similar=np.where(pd.isnull(res["NN1_score"]) == True , False, True))
 
         res = pd.merge(test_df, res.rename(columns={"query_key": "key"}), on="key", how="inner")
-        
-        final = add_neighbours_text(res, train_df)
+        res.rename(columns={"query_key": "key"}, inplace=True)
+        final = add_neighbours_text(res, train_df, k)
         
         return final
     except Exception as e:
