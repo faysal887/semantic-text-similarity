@@ -1,4 +1,4 @@
-# from similar_new import get_similar_tickets
+## from similar_new import get_similar_tickets
 
 import numpy as np
 import faiss
