@@ -1,19 +1,9 @@
-## from similar_new import get_similar_tickets
-
 import numpy as np
 import faiss
 from faiss import normalize_L2
 import pandas as pd
 import sys, os
-from datetime import datetime, timedelta
-import requests
-import json
-import timeit
-from datetime import datetime
-import os.path, time
-from datetime import datetime, timedelta
-from threading import Timer
-import pdb
+import os.path
 
 
 def apply_threshold(row, k=5, threshold=0.95):
@@ -21,9 +11,11 @@ def apply_threshold(row, k=5, threshold=0.95):
         row=row.to_frame().T
         row.iloc[0,:k]=row.iloc[0,:k].astype(float)
         r=row.iloc[0, :k]
-        l=len(r[r>=threshold])
-        row.iloc[:, l:k]=np.nan
-        row.iloc[:, k+l:k*2]=np.nan
+        ind = (r<threshold).values.flatten().tolist()
+        ind += ind
+        ind2 = [False]*len(row.iloc[0, k+k:])
+        ind += ind2
+        row.iloc[:, ind] = np.nan
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname =os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -48,8 +40,8 @@ def create_index(df, ids_col, xb_faiss_col):
         index_faiss = faiss.IndexIDMap(faiss.IndexFlatIP(d))
         index_faiss.add_with_ids(xb_faiss, ids)
 
-        print("FAISS index trained: ", index_faiss.is_trained)
-        print("Total db vectors: ", index_faiss.ntotal)
+#         print("FAISS index trained: ", index_faiss.is_trained)
+#         print("Total db vectors: ", index_faiss.ntotal)
 
         return index_faiss
     except Exception as e:
@@ -63,16 +55,15 @@ def add_neighbours_text(mydf, train_df, k):
     try:
         for i in range(1,k+1):
             vals=mydf["NN"+str(i)+"_number"].tolist()
-
             if pd.isnull(vals).all():
                 mydf["NN"+str(i)+"_text"]=np.nan
             else:
-                mydf["NN"+str(i)+"_text"] = train_df.set_index("key").loc[mydf["NN"+str(i)+"_number"].tolist()].text.tolist()
+                for exp_id in mydf["NN"+str(i)+"_number"].tolist():
+                    if pd.isnull(exp_id):
+                        mydf.loc[mydf["NN"+str(i)+"_number"]==exp_id, "NN"+str(i)+"_text"] = np.nan
+                    else:
+                        mydf.loc[mydf["NN"+str(i)+"_number"]==exp_id, "NN"+str(i)+"_text"] = train_df.set_index("key").loc[exp_id]['text']
         return mydf
-#         final=mydf[["key", "query_text", "NN1_text","NN1_score", "NN1_number", "NN2_text","NN2_score", "NN2_number", "NN3_text","NN3_score", "NN3_number", "NN4_text","NN4_score", "NN4_number", "NN5_text","NN5_score","NN5_number", ]]
-#         final
-
-#         return final
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname =os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -80,34 +71,33 @@ def add_neighbours_text(mydf, train_df, k):
         return False
     
 
-
 def get_similar_tickets(train_df, test_df, ids_col, xb_faiss_col, k=5, threshold=0.95):
-    print("starting operations")
+#     print("starting operations")
     
     try:
-        print("creating faiss index")
+#         print("creating faiss index")
         index_faiss = create_index(train_df, ids_col, xb_faiss_col)
         
-        print("starting calculations")
+#         print("starting calculations")
         if "emb" not in test_df.columns: 
             print("embeddings not found")
             return False
 
         xq = np.float32(np.asarray(test_df["emb"].tolist()))
         normalize_L2(xq)
-        print("query vector created")
+#         print("query vector created")
         
         result=search_faiss(index_faiss, xq, k)
-        print("got results from FAISS")
+#         print("got results from FAISS")
         
-        nums = lambda t: "INC"+str(int(t)).zfill(7)
+        nums = lambda t: "INC"+str(int(t))
         vfunc = np.vectorize(nums)
         result[1]=vfunc(result[1])
 
         mydf=pd.DataFrame(np.column_stack(result))
         mydf["query_key"]=test_df["key"].tolist()
         mydf["query_text"]=test_df["text"].tolist()
-        print("creating result dataframe")
+#         print("creating result dataframe")
 
         mydf=mydf.rename(columns = dict(zip(range(0,k), [f'NN{n+1}_score' for n in range(0,k)])))
         mydf=mydf.rename(columns = dict(zip(range(k, (k*2)), [f'NN{n+1}_number' for n in range(0,k)])))
@@ -120,15 +110,11 @@ def get_similar_tickets(train_df, test_df, ids_col, xb_faiss_col, k=5, threshold
 
         res = pd.merge(test_df, res.rename(columns={"query_key": "key"}), on="key", how="inner")
         res.rename(columns={"query_key": "key"}, inplace=True)
-        final = add_neighbours_text(res, train_df, k)
+#         res = add_neighbours_text(res, train_df, k)
         
-        return final
+        return res
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname =os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
         print("Exception get_similar_tickets: ", e, exc_type, fname, exc_tb.tb_lineno)
         return False
-    
-    
-
-    
