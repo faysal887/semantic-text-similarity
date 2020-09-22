@@ -90,7 +90,7 @@ def get_similar_tickets(train_df, test_df, ids_col, xb_faiss_col, k=5, threshold
         result=search_faiss(index_faiss, xq, k)
 #         print("got results from FAISS")
         
-        nums = lambda t: "INC"+str(int(t))
+        nums = lambda t: "KEY"+str(int(t)).zfill(7)
         vfunc = np.vectorize(nums)
         result[1]=vfunc(result[1])
 
